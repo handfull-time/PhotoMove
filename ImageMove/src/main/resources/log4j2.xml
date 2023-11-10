@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration>
+
+	<!-- Appender, Layout 설정 -->
+	<Appenders>
+		<Console name="console" target="SYSTEM_OUT">
+			<PatternLayout pattern="%d %5p [%c] %m%n" />
+		</Console>
+
+		<File name="file" fileName="./logs/ImageMove.log" append="false">
+			<PatternLayout pattern="%d [%t] - %m%n" />
+		</File>
+	</Appenders>
+
+	<!-- Logger 설정 -->
+	<Loggers>
+		<Root level="DEBUG" additivity="false">
+			<AppenderRef ref="console" />
+			<AppenderRef ref="file" />
+		</Root>
+		
+	</Loggers>
+
+</Configuration>
