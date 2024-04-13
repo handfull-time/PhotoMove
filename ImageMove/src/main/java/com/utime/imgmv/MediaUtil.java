@@ -10,6 +10,9 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collection;
@@ -51,17 +54,24 @@ public class MediaUtil {
 		list.add(dateFormat);
 	}
 	
+	private static final int MaxDateFormatNameLen;
+
 	static {
 		_listAdd(dateFormatList, "yyyyMMddHHmmss");
 		_listAdd(dateFormatList, "yyyyMMdd");
-		_listAdd(dateFormatList, "yyyyMd");
+		_listAdd(dateFormatList, "HHmmssyyyyMMdd");
+		_listAdd(dateFormatList, "yyMMddHHmmss");
+		_listAdd(dateFormatList, "yyMMdd");
 		_listAdd(dateFormatList, "yyyyMMddHHmm");
-		_listAdd(dateFormatList, "yyyyMMddHH");
-		_listAdd(dateFormatList, "yyyyMMddHHmms");
-		_listAdd(dateFormatList, "yyyyMMddHm");
-		_listAdd(dateFormatList, "yyyyMMddHms");
-		_listAdd(dateFormatList, "yyyyMdHms");
 		
+		int len = 999;
+		for( SimpleDateFormat df : dateFormatList ) {
+			if( len > df.toPattern().length() ) {
+				len = df.toPattern().length();
+			}
+		}
+		
+		MaxDateFormatNameLen = len;
 		
 		rawFileSet.add(".crw");
 		rawFileSet.add(".cr2");
@@ -248,52 +258,116 @@ public class MediaUtil {
 	}
 	
 	public static final String getExName( String fileName ) {
-		return fileName.substring(fileName.lastIndexOf("."), fileName.length()).toLowerCase();
+		final int index = fileName.lastIndexOf(".");
+		if( index > -1 && index < fileName.length() ) {
+			return fileName.substring( index, fileName.length()).toLowerCase();
+		} else {
+			return fileName.substring( fileName.length()-3).toLowerCase();
+		}
 	}
 	
 	public static final String getOriginName( String fileName ) {
 		
-		return fileName.substring(0, fileName.lastIndexOf("."));
+		final int index = fileName.lastIndexOf(".");
+		if( index > -1 ) {
+			return fileName.substring(0, index);
+		}else {
+			return fileName.substring(0, fileName.length()-4).toLowerCase();
+		}
 	}
 	
 	public static final String getExName( File file ) {
 		return MediaUtil.getExName(file.getName());
 	}
 
+	/**
+	 * 시간이 0 일 경우 파일 기반 시간으로 세팅함.
+	 * @param srcFile
+	 * @param date
+	 * @return
+	 */
+	public static final Date checkTime( File srcFile, Date date ) {
+		
+		Date result = null;
+		if( date == null ) {
+			
+			result = MediaUtil.getDateFormFileAttributes( srcFile );
+			
+			return MediaUtil.isPossibleDate(result)? result:null;
+		}
+
+		LocalDateTime localDateTime = date.toInstant()
+	            .atZone(ZoneId.systemDefault())
+	            .toLocalDateTime();
+		
+	    // 시, 분, 초만 추출
+		LocalTime time = localDateTime.toLocalTime();
+		if (time.getHour() == 0 && time.getMinute() == 0 && time.getSecond() == 0) {
+			Date fileDate = MediaUtil.getDateFormFileAttributes( srcFile );
+			
+			localDateTime = fileDate.toInstant()
+		            .atZone(ZoneId.systemDefault())
+		            .toLocalDateTime();
+			
+			time = localDateTime.toLocalTime();
+			
+			Calendar calendar = Calendar.getInstance();
+	        calendar.setTime(date);
+
+	        // 시, 분, 초만 변경
+	        calendar.set(Calendar.HOUR_OF_DAY, time.getHour());
+	        calendar.set(Calendar.MINUTE, time.getMinute());
+	        calendar.set(Calendar.SECOND, time.getSecond());
+
+	        result = calendar.getTime();
+			
+	    } else {
+	    	result = date;
+	    }
+		
+		return MediaUtil.isPossibleDate(result)? result:null;
+	}
+
 	public static Date getCreateTime( File srcFile ) {
 		
 		Date result = null;
+		
 		final String name = srcFile.getName();
-		final String exName = MediaUtil.getExName(name);
-		final String numFileName = name.replaceAll("[^0-9]","");
-		final int numFileNameLen = numFileName.length();
+		
+		final String numFileName = MediaUtil.getOriginName( name ).replaceAll("[^0-9]","");
 
-		for(SimpleDateFormat dateFormat : MediaUtil.dateFormatList) {
-			final int lenFormat = dateFormat.toPattern().length();
-			if( numFileNameLen < lenFormat ) {
-				continue;
-			}
+		// 파일 이름으로부터 날짜 정보를 얻는다.
+		final int numFileNameLen = numFileName.length();
+		if( MaxDateFormatNameLen <= numFileNameLen ) {
 			
-			final String fname = numFileName.substring(0, lenFormat);
-			try {
-	        	result = dateFormat.parse( fname );
-				if( ! MediaUtil.isPossibleDate(result) ) {
+			for(SimpleDateFormat dateFormat : MediaUtil.dateFormatList) {
+				final int len = dateFormat.toPattern().length();
+				if( numFileNameLen < len ) {
+					continue;
+				}
+				
+				final String fname = numFileName.substring(0, len);
+				try {
+		        	result = dateFormat.parse( fname );
+					if( ! MediaUtil.isPossibleDate(result) ) {
+						result = null;
+					}
+				} catch (Exception e) {
 					result = null;
 				}
-			} catch (Exception e) {
-				result = null;
-			}
-			
-			if( result != null ) {
-				break;
+				
+				if( result != null ) {
+					break;
+				}
 			}
 		}
 		
 		if( result != null) {
-			return result;
+			return MediaUtil.checkTime(srcFile, result);
 		}
-		
 
+		final String exName = MediaUtil.getExName(name);
+		
 		// EXIF로 부터 파일 정보를 읽는다.
 		if( ".jpeg".equals(exName) || ".jpg".equals(exName) ){
 			// 사진이다.
@@ -313,9 +387,9 @@ public class MediaUtil {
 			if( result == null ) {
 				result = MediaUtil.getImageCreateTime(srcFile);
 			}
-	
-		} else if( MediaUtil.rawFileSet.contains(exName) ){
-			// 생성 날짜 얻기
+			
+		} else if( rawFileSet.contains(exName) ){
+			// 이미지 생성 날짜 얻기
 			result = MediaUtil.getImageCreateTime(srcFile);
 			
 		} else if( ".mov".equals(exName) || ".mp4".equals(exName) ){
@@ -345,16 +419,11 @@ public class MediaUtil {
 			}
 		}
 		
-		if( result != null )
-			return result;
-		
-		result = MediaUtil.getDateFormFileAttributes(srcFile);
-
-		return result;
+		return MediaUtil.checkTime(srcFile, result);
 	}
 	
 	/**
-	 * 파일 속성으로부터 생성 날짜를 얻는다.
+	 * 파일 속성으로부터 날짜를 얻는다.
 	 * @param file
 	 * @return
 	 */
@@ -364,9 +433,25 @@ public class MediaUtil {
 		
 		if( file.exists() )
 			try {
-				BasicFileAttributes attr = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
-//				result = new Date(attr.creationTime().toMillis() );
-				result = new Date(attr.lastModifiedTime().toMillis() );
+				final BasicFileAttributes attrs = Files.readAttributes(file.toPath(), BasicFileAttributes.class);
+				
+				
+				// 파일의 생성 시간, 마지막 수정 시간, 마지막 액세스 시간을 가져옵니다.
+	            final FileTime creationTime = attrs.creationTime();
+	            final FileTime lastModifiedTime = attrs.lastModifiedTime();
+	            final FileTime lastAccessTime = attrs.lastAccessTime();
+
+	            // 가장 오래된 날짜를 찾습니다.
+	            FileTime oldest = creationTime;
+	            if (lastModifiedTime.compareTo(oldest) < 0) {
+	                oldest = lastModifiedTime;
+	            }
+	            if (lastAccessTime.compareTo(oldest) < 0) {
+	                oldest = lastAccessTime;
+	            }
+				
+				
+				result = new Date( oldest.toMillis() );
 			} catch (IOException e) {
 				e.printStackTrace();
 				result = null;
@@ -421,7 +506,7 @@ public class MediaUtil {
 //    }
 
 	
-	private static final int SAMPLE_SIZE = 1024; // 샘플링할 크기
+	private static final int SAMPLE_SIZE = 64; // 샘플링할 크기
 	
 	private static boolean isSameFile(Path source, Path target, int count) throws Exception {
         // 파일 크기 비교
@@ -442,7 +527,7 @@ public class MediaUtil {
             final MessageDigest mdTarget = MessageDigest.getInstance("SHA-256");
             
 //            long numberOfSamples = sourceFile.length() / SAMPLE_SIZE;
-            for (int i = 0; i < 5 ; i++) {
+            for (int i = 0; i < count ; i++) {
             	final long position = (long) (Math.random() * sourceFile.length());
                 
                 raf1.seek(position);
@@ -467,11 +552,11 @@ public class MediaUtil {
 	}
 
     public static boolean isSameFile(Path source, Path target) throws Exception {
-    	return MediaUtil.isSameFile(source, target, 5);
+    	return MediaUtil.isSameFile(source, target, 1);
     }
 
     public static boolean isSimpleSameFile(Path source, Path target) throws Exception {
-    	return MediaUtil.isSameFile(source, target, 1);
+    	return MediaUtil.isSameFile(source, target, 0);
     }
 
 }

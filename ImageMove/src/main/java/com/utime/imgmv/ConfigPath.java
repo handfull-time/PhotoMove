@@ -15,6 +15,11 @@ public class ConfigPath {
 	/** 분류 대상 폴더 */
 	private List<String> sourceList;
 	
+	/**
+	 * 사진을 복사 시킬 것인가?
+	 */
+	private boolean fileCopy = true;
+	
 	public String getUnknown() {
 		return unknown;
 	}
@@ -32,6 +37,12 @@ public class ConfigPath {
 	}
 	public void setSourceList(List<String> sourceList) {
 		this.sourceList = sourceList;
+	}
+	public boolean isFileCopy() {
+		return fileCopy;
+	}
+	public void setFileCopy(boolean fileCopy) {
+		this.fileCopy = fileCopy;
 	}
 	@Override
 	public String toString() {

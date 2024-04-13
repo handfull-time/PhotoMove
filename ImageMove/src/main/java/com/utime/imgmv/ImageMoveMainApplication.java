@@ -4,10 +4,12 @@ import java.io.File;
 import java.io.FileFilter;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -20,6 +22,8 @@ import com.google.gson.GsonBuilder;
 public class ImageMoveMainApplication {
 	
 	private static Logger log = LogManager.getLogger(ImageMoveMainApplication.class);
+	
+	private static boolean isFileCopy;
 
 	public static void main(String[] args) {
 		
@@ -39,21 +43,37 @@ public class ImageMoveMainApplication {
 			
 			conf.setSourceList(lst);
 			
+			final String json = gson.toJson(conf);
+			
 			System.out.println("\n\n------------------------------------------------------\n");
 			System.out.println("아래와 같은 파일을 생성해 주세요.");
 			System.out.println("파일 이름 : config.json");
 			System.out.println("");
 			System.out.println("파일 내용");
-			System.out.println( gson.toJson(conf) );
+			System.out.println( json );
 			System.out.println("\n------------------------------------------------------\n");
+			
+			try {
+				final FileWriter writer = new FileWriter(configFile);
+				writer.write( json );
+				writer.flush();
+				writer.close();
+				
+			} catch (IOException e) {
+				e.printStackTrace();
+				return;
+			}
+			
+			
 			return;
 		}
 		
 		final ConfigPath conf;
 		try {
-			FileReader reader = new FileReader(configFile);
+			final FileReader reader = new FileReader(configFile);
 			conf = gson.fromJson(reader, ConfigPath.class);
 			reader.close();
+			
 		} catch (FileNotFoundException e ) {
 			e.printStackTrace();
 			return;
@@ -61,6 +81,7 @@ public class ImageMoveMainApplication {
 			e.printStackTrace();
 			return;
 		}
+		isFileCopy = conf.isFileCopy();
 		
 		String destPath;
 		{
@@ -139,14 +160,22 @@ public class ImageMoveMainApplication {
 				
 				if( info.getDstFile() == null ) {
 					final File unFile =  new File( unknownPath, info.getSrcFile().getName());
-					ImageMoveMainApplication.moveWithUniqueName(info.getSrcFile().toPath(), unFile.toPath());
+					try {
+						ImageMoveMainApplication.moveWithUniqueName(info.getSrcFile().toPath(), unFile.toPath());
+					} catch (Exception e) {
+						e.printStackTrace();
+					}
 					continue;
 				}
-				
-				if( ! ImageMoveMainApplication.moveWithUniqueName(info.getSrcFile().toPath(), info.getDstFile().toPath()) ) {
-//					final File unFile =  new File( unknownPath,"Exists_"+ info.getSrcFile().getName());
-//					ImageMoveMain.moveWithUniqueName(info.getSrcFile().toPath(), unFile.toPath());
-				};
+
+				try {
+					if( ! ImageMoveMainApplication.moveWithUniqueName(info.getSrcFile().toPath(), info.getDstFile().toPath()) ) {
+//						final File unFile =  new File( unknownPath,"Exists_"+ info.getSrcFile().getName());
+//						ImageMoveMain.moveWithUniqueName(info.getSrcFile().toPath(), unFile.toPath());
+					};
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
 
 			}else if(file.isDirectory()){
 
@@ -174,7 +203,12 @@ public class ImageMoveMainApplication {
             while (true) {
                 Path newTarget = target.resolveSibling(ImageMoveMainApplication.getNewFilename(target.getFileName().toString(), counter));
                 if (!Files.exists(newTarget)) {
-                	ImageMoveMainApplication.move(source, newTarget);
+                	if( ImageMoveMainApplication.isFileCopy ) {
+                		ImageMoveMainApplication.copy(source, newTarget);
+                	}else {
+                		ImageMoveMainApplication.move(source, newTarget);
+                	}
+                	
                     return true;
                 }else {
                 	if( MediaUtil.isSameFile(source, newTarget) ) {
@@ -185,7 +219,11 @@ public class ImageMoveMainApplication {
                 counter++;
             }
         } else {
-        	ImageMoveMainApplication.move(source, target);
+        	if( ImageMoveMainApplication.isFileCopy ) {
+        		ImageMoveMainApplication.copy(source, target);
+        	}else {
+        		ImageMoveMainApplication.move(source, target);
+        	}
         }
         return true;
     }
@@ -207,21 +245,32 @@ public class ImageMoveMainApplication {
 		}else {
 			log.info( "F," + source.toString() + "," + target.toString());
 		}
-//    	final Path res = Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
-//    	if( Files.exists(res) ) {
-//    		
-//    		if( MediaUtil.isSimpleSameFile(source, target) ) {
-//    			Files.deleteIfExists(source);
-//    			log.info( "T," + source.toString() + "," + target.toString());
-//    		}else {
-//    			log.info( "F," + source.toString() + "," + target.toString());
-//    		}
-//    	}
-    	
-    	
     }
 
-    private static String getNewFilename(String originalName, int counter) {
+    private static void copy(Path source, Path target) throws Exception {
+    	if( ! Files.exists(target.getParent()) ){
+    		final File f = new File( target.getParent().toUri() );
+    		System.out.println(f + " 폴더 생성 - " + f.mkdirs());
+    		
+    		if( ! Files.exists(target.getParent()) ){
+    			System.err.println(target.getParent() + " 폴더 생성 실패");
+    			throw new IOException(target.getParent() + " 폴더 생성 실패");
+    		}
+    	}
+    	
+    	final Path res = Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING);
+    	if( Files.exists(res) ) {
+    		
+    		if( MediaUtil.isSimpleSameFile(source, target) ) {
+//    			Files.deleteIfExists(source);
+    			log.info( "T," + source.toString() + "," + target.toString());
+    		}else {
+    			log.info( "F," + source.toString() + "," + target.toString());
+    		}
+    	}
+    }
+	
+	private static String getNewFilename(String originalName, int counter) {
         int dotIndex = originalName.lastIndexOf(".");
         if (dotIndex == -1) {
             return originalName + "(" + counter + ")";
